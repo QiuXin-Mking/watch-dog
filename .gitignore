@@ -1,0 +1,8 @@
+# 构建产物
+build/
+*.o
+*.d
+watchdog
+
+# macOS
+.DS_Store

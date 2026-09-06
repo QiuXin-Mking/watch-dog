@@ -1,0 +1,13 @@
+[Unit]
+Description=USB camera unplug watchdog with speaker alarm
+After=systemd-udevd.service sound.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/watchdog /etc/watchdog/cameras.conf
+Restart=always
+RestartSec=3
+# Runs as root so it can open the ALSA speaker and read /sys.
+
+[Install]
+WantedBy=multi-user.target
