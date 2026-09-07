@@ -214,21 +214,21 @@ int main(int argc, char** argv) {
         auto devs = enumerate_usb_devices();
         int matched = 0;
         for (const auto& d : devs) {
-            const std::string name = match_first_spec(state.specs(), d);
-            if (!name.empty()) {
-                state.seed_present(name, d.syspath);
+            const int idx = match_first_spec(state.specs(), d);
+            if (idx >= 0) {
+                state.seed_present(static_cast<size_t>(idx), d.syspath);
                 ++matched;
                 log_info("present name=%s vid=%04x pid=%04x product=[%s] "
                          "serial=[%s]",
-                         name.c_str(), d.vid, d.pid, d.product.c_str(),
-                         d.serial.c_str());
+                         state.specs()[static_cast<size_t>(idx)].name.c_str(),
+                         d.vid, d.pid, d.product.c_str(), d.serial.c_str());
             }
         }
         // Apply any add/remove events that queued up while we were enumerating.
         mon.process_events(state);
         const auto missing = state.missing_specs();
-        log_info("startup: enumerated %d/%zu matching camera(s), %zu missing",
-                 matched, state.specs().size(), missing.size());
+        log_info("startup: matched %d device(s), %zu channel(s) missing",
+                 matched, missing.size());
         for (const auto& n : missing) {
             log_warn("startup missing -> will alarm: %s", n.c_str());
         }

@@ -5,13 +5,13 @@
 #   fallback  : "pid"              仅凭 vid+pid 命中 (PID 唯一)
 #             : "product=<string>" udev ID_MODEL 精确匹配 (兼容旧固件)
 # 匹配规则: vid+pid 全等 且 (serial 以 sn_prefix 开头 OR fallback 命中)
+# 同名多行 = 一个通道的多个设备，任一设备缺失该通道即报"断开"
 # 语音文件: /etc/watchdog/sounds/ 下对应文件名，缺失则该路退化为 journald 日志
 #
 # 左腕: 1bcf:2d52, 旧固件 serial=SL003 命中 sn_prefix SL (新固件 SLxxxxx)
 wrist_left  1bcf 2d52  SL         product=SL      wrist_left.wav         wrist_left_recover.wav
 # 右腕: 1bcf:2d52, 旧固件 product=JHHSW / serial=SW002 走 product 回退
 wrist_right 1bcf 2d52  SR         product=JHHSW   wrist_right.wav        wrist_right_recover.wav
-# 双目: 1bcf:2d50, PID 唯一，旧固件同串号 SJHH001 走 pid 回退
-jhh02       1bcf 2d50  ST         pid             jhh02.wav              jhh02_recover.wav
-# 四目: 1bcf:2d51, PID 唯一，同上
-jhh04       1bcf 2d51  SF         pid             jhh04.wav              jhh04_recover.wav
+# 六目 = 双目(jhh02 2d50) + 四目(jhh04 2d51) 合并成一通道，任一缺失即报"六目摄像头断开"
+sixcam      1bcf 2d50  ST         pid             sixcam.wav             sixcam_recover.wav
+sixcam      1bcf 2d51  SF         pid             sixcam.wav             sixcam_recover.wav

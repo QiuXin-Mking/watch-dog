@@ -86,11 +86,11 @@ bool spec_matches(const CameraSpec& spec, const UsbDeviceProps& dev) {
     return false;
 }
 
-std::string match_first_spec(const std::vector<CameraSpec>& specs, const UsbDeviceProps& dev) {
-    for (const auto& s : specs) {
-        if (spec_matches(s, dev)) return s.name;
+int match_first_spec(const std::vector<CameraSpec>& specs, const UsbDeviceProps& dev) {
+    for (size_t i = 0; i < specs.size(); ++i) {
+        if (spec_matches(specs[i], dev)) return static_cast<int>(i);
     }
-    return {};
+    return -1;
 }
 
 UdevMonitor::~UdevMonitor() {
@@ -152,20 +152,21 @@ void UdevMonitor::process_events(State& state) {
                     log_info("udev remove syspath=%s name=%s",
                              p.syspath.c_str(), removed_name.c_str());
                 } else {
-                    std::string name = match_first_spec(state.specs(), p);
-                    if (!name.empty()) {
+                    int idx = match_first_spec(state.specs(), p);
+                    if (idx >= 0) {
                         log_info("udev remove(by props) syspath=%s name=%s",
-                                 p.syspath.c_str(), name.c_str());
-                        state.remove_named(name);
+                                 p.syspath.c_str(),
+                                 state.specs()[static_cast<size_t>(idx)].name.c_str());
+                        state.remove_by_index(static_cast<size_t>(idx));
                     }
                     // else: non-target USB device removal -> ignore (R7).
                 }
             } else if (std::strcmp(action, "add") == 0) {
-                std::string name = match_first_spec(state.specs(), p);
-                if (!name.empty()) {
+                int idx = match_first_spec(state.specs(), p);
+                if (idx >= 0) {
                     log_info("udev add syspath=%s name=%s", p.syspath.c_str(),
-                             name.c_str());
-                    state.add_present_device(name, p.syspath);
+                             state.specs()[static_cast<size_t>(idx)].name.c_str());
+                    state.add_present_device(static_cast<size_t>(idx), p.syspath);
                 }
             }
             // "change"/"bind"/"unbind"/"move" are irrelevant for us.

@@ -23,8 +23,8 @@ std::vector<UsbDeviceProps> enumerate_usb_devices();
 // Does this device match this spec? vid+pid equal AND (serial-prefix OR fallback).
 bool spec_matches(const CameraSpec& spec, const UsbDeviceProps& dev);
 
-// Name of the first spec matched by dev, or "" when it matches nothing.
-std::string match_first_spec(const std::vector<CameraSpec>& specs, const UsbDeviceProps& dev);
+// Index of the first spec matched by dev, or -1 when it matches nothing.
+int match_first_spec(const std::vector<CameraSpec>& specs, const UsbDeviceProps& dev);
 
 // Wraps a udev_monitor (subsystem "usb", devtype "usb_device") fed by the udev
 // daemon so events carry udev-computed properties. The fd is set non-blocking.

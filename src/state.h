@@ -13,42 +13,44 @@
 
 // Shared, mutex-protected runtime state.
 //
-// Per-camera lifecycle:
-//   present (device seen) <-> missing (device gone).
-//   missing ∧ !acked  -> alarming   (speaker alarm active)
-//   missing ∧  acked  -> silenced   (stop_alarm was used; stays silent until a
-//                                    new unplug event clears the ack)
+// A "channel" is the logical alarm unit named by CameraSpec::name. One channel
+// may be backed by several device specs (e.g. "sixcam" = jhh02 2d50 + jhh04
+// 2d51): the channel is "present" only when EVERY one of its specs has a
+// matching USB device; if any spec is gone the channel is "missing".
 //
-// Cameras are tracked per spec name; the syspath->name map lets remove events
-// be attributed even when udev remove events no longer carry ID_* properties.
+//   missing ∧ !acked  -> alarming   (speaker alarm active)
+//   missing ∧  acked  -> silenced   (stop_alarm; stays silent until a new
+//                                    unplug event clears the ack)
 class State {
 public:
-    explicit State(std::vector<CameraSpec> specs) : specs_(std::move(specs)) {}
+    explicit State(std::vector<CameraSpec> specs);
 
     const std::vector<CameraSpec>& specs() const { return specs_; }
+    // First spec with this channel name (used only for its WAV file names, so
+    // with a multi-device channel any one works).
     const CameraSpec* find_spec(const std::string& name) const;
 
     // ---- startup (main thread, before udev/alarm threads start) ----
-    void seed_present(const std::string& name, const std::string& syspath);
+    void seed_present(size_t spec_index, const std::string& syspath);
 
     // ---- udev monitor thread ----
-    // A matching USB device appeared. Returns true when this is a genuine
-    // recovery (device was missing), which enqueues a one-shot recover voice.
-    void add_present_device(const std::string& name, const std::string& syspath);
-    // A USB device was removed; returns true when it belonged to a target spec.
-    // If non-null, *removed_name receives the spec name of the removed device.
+    // A matching USB device appeared. Enqueues a one-shot recover voice when
+    // the whole channel transitions missing -> present.
+    void add_present_device(size_t spec_index, const std::string& syspath);
+    // A USB device was removed (identified by syspath). Returns true when it
+    // belonged to a target spec; *removed_name receives the channel name.
     bool remove_device_by_syspath(const std::string& syspath,
                                   std::string* removed_name = nullptr);
     // Fallback when a remove event had no syspath mapping but props matched.
-    void remove_named(const std::string& name);
+    void remove_by_index(size_t spec_index);
 
     // ---- UDS control thread ----
-    void ack_all_missing();  // stop_alarm: silence every currently-missing camera
+    void ack_all_missing();  // stop_alarm: silence every currently-missing channel
 
-    // ---- alarm thread snapshots ----
-    std::vector<std::string> missing_specs() const;    // present == false
+    // ---- alarm thread snapshots (channel names, de-duplicated) ----
+    std::vector<std::string> missing_specs() const;    // not present
     std::vector<std::string> alarming_specs() const;   // missing ∧ !acked
-    std::vector<std::string> present_specs() const;    // present == true
+    std::vector<std::string> present_specs() const;    // all specs present
     bool is_present(const std::string& name) const;    // snapshot test
 
     // One-shot recover voices produced by add events; consumed by alarm thread.
@@ -63,15 +65,18 @@ public:
     std::string status_json() const;
 
 private:
-    // Drop every syspath mapping that points at `name` (caller holds m_).
-    void clear_syspaths_for(const std::string& name);
+    // Drop every syspath mapping that points at `index` (caller holds m_).
+    void clear_syspaths_for(size_t index);
+    // True when every spec named `name` has a present device (caller holds m_).
+    bool name_present_locked(const std::string& name) const;
 
-    std::vector<CameraSpec> specs_;                 // immutable after construction
+    std::vector<CameraSpec> specs_;          // immutable after construction
+    std::vector<std::string> channels_;      // unique channel names (spec order)
     mutable std::mutex m_;
 
-    std::map<std::string, std::string> syspath_to_spec_;  // syspath -> spec name
-    std::set<std::string> present_;                        // spec names present
-    std::set<std::string> acked_;                          // missing + silenced
+    std::map<std::string, size_t> syspath_to_index_;  // syspath -> spec index
+    std::set<size_t> present_indices_;                // specs with a present device
+    std::set<std::string> acked_;                    // channel names silenced
     std::vector<std::string> recover_queue_;
 
     std::atomic<bool> cancel_{false};

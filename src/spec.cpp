@@ -72,15 +72,9 @@ std::vector<CameraSpec> parse_cameras_conf(const std::string& path, std::string&
 
         CameraSpec spec;
         spec.name = tok[0];
-        for (const auto& existing : specs) {
-            if (existing.name == spec.name) {
-                std::ostringstream oss;
-                oss << path << ':' << line_no << ": duplicate camera name '"
-                    << spec.name << "'";
-                error = oss.str();
-                return {};
-            }
-        }
+        // A name may repeat: each line declares one device of a channel. A
+        // channel backed by several devices (e.g. "sixcam" = jhh02 + jhh04) is
+        // present only when every one of its devices is present (see state.h).
         if (!parse_hex16(tok[1], spec.vid) || spec.vid == 0) {
             std::ostringstream oss;
             oss << path << ':' << line_no << ": bad vid '" << tok[1] << "'";
