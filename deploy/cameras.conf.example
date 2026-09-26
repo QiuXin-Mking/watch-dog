@@ -6,8 +6,8 @@
 # 同名多行 = 一个通道的多个设备，任一设备缺失该通道即报"断开"
 # 语音文件: /etc/watchdog/sounds/ 下对应文件名，缺失则该路退化为 journald 日志
 #
-wrist_left  1bcf 2d52 serial=JH01260911A01W10FV200C1A01217 wrist_left.wav  wrist_left_recover.wav
-wrist_right 1bcf 2d52 serial=JH01260911A01W10FV200C1A01670 wrist_right.wav wrist_right_recover.wav
+wrist_left  1bcf 2d52 product=SL 左腕断开.wav 左腕恢复.wav
+wrist_right 1bcf 2d52 product=JHHSW 右腕断开.wav 右腕恢复.wav
 # 六目 = 双目(jhh02 2d50) + 四目(jhh04 2d51) 合并成一通道，任一缺失即报"六目摄像头断开"
-sixcam      1bcf 2d50 pid sixcam.wav sixcam_recover.wav
-sixcam      1bcf 2d51 pid sixcam.wav sixcam_recover.wav
+sixcam      1bcf 2d50 pid 六目断开.wav 六目恢复.wav
+sixcam      1bcf 2d51 pid 六目断开.wav 六目恢复.wav
