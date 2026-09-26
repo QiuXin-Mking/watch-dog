@@ -1,6 +1,7 @@
 #include "uds.h"
 
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -79,6 +80,18 @@ void UdsServer::serve_one(
     // main control loop (and with it signal handling / shutdown).
     int fl = fcntl(client, F_GETFL, 0);
     if (fl >= 0) fcntl(client, F_SETFL, fl | O_NONBLOCK);
+
+    // Wait briefly for the peer's one-line command before reading. The client
+    // socket is non-blocking above, so an async client (Node net.connect + a
+    // 'connect'-callback write) would otherwise race: read() EAGAINs on an
+    // empty socket, we close it, and the client's later write hits EPIPE —
+    // which made the device-ui self-check read the watchdog as offline. poll()
+    // gives the peer a short window to send its command.
+    struct pollfd pfd { client, POLLIN, 0 };
+    if (poll(&pfd, 1, 200) <= 0) {
+        ::close(client);
+        return;  // no command within 200ms: stray/aborted client
+    }
 
     // Read one command line (short connection: client sends one line then
     // closes / shutdown(SHUT_WR)). Loop to tolerate partial reads.
