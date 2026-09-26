@@ -4,6 +4,10 @@
 # 用法:
 #   bash deploy/play_sounds.sh              # 播放默认 /etc/watchdog/sounds 下的语音
 #   bash deploy/play_sounds.sh /some/dir    # 播放指定目录
+# 同步脚本到板端
+# adb push deploy/play_sounds.sh /root/watchdog/deploy/play_sounds.sh
+# 板端执行
+# adb shell 'bash /root/watchdog/deploy/play_sounds.sh'
 set -euo pipefail
 
 SOUNDS_DIR="${1:-/etc/watchdog/sounds}"
