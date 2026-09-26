@@ -52,30 +52,23 @@ make clean
 
 ## 匹配规则
 
-每路 `CameraSpec` 声明 vid/pid/sn_prefix/fallback。设备命中某路 ⇔
-`vid == 该路 vid ∧ pid == 该路 pid` 且：
-
-- **serial 以 sn_prefix 开头** —— 新固件 SN 规范（SL=左腕 SR=右腕 ST=双目 SF=四目）；或
-- **fallback 命中** —— `product=<string>`（ID_MODEL 精确匹配，兼容旧固件）或 `pid`（仅凭 vid+pid）。
-
-当前板端是旧固件：左腕 `SL003` 命中 `SL` 前缀；右腕 `SW002` 不中 `SR` → 回退
-`product=JHHSW`；jhh02/jhh04 同串号 `SJHH001` → 回退 pid(2d50/2d51)。固件升级到
-新 SN 后自动走前缀路径，**不改代码，只改配置**（配置里已写好）。
+每路 `CameraSpec` 声明 vid、pid 和一个匹配规则。设备必须先满足 VID/PID，
+再满足 `serial=<完整SN>`、`product=<string>` 或 `pid` 规则。当前同型号左右腕
+使用完整 SN 精确绑定；jhh02/jhh04 的 PID 唯一，使用 `pid` 规则。
 
 ## 配置格式
 
 `/etc/watchdog/cameras.conf`，纯文本、`#` 注释、空白分隔，每行一路：
 
 ```
-# name      vid   pid  sn_prefix  fallback        alarm_wav            recover_wav
-wrist_left  1bcf  2d52  SL         product=SL      wrist_left.wav       wrist_left_recover.wav
-wrist_right 1bcf  2d52  SR         product=JHHSW   wrist_right.wav      wrist_right_recover.wav
-jhh02       1bcf  2d50  ST         pid             jhh02.wav            jhh02_recover.wav
-jhh04       1bcf  2d51  SF         pid             jhh04.wav            jhh04_recover.wav
+# name      vid   pid  match_rule                              alarm_wav       recover_wav
+wrist_left  1bcf  2d52 serial=JH01260911A01W10FV200C1A01217 wrist_left.wav  wrist_left_recover.wav
+wrist_right 1bcf  2d52 serial=JH01260911A01W10FV200C1A01670 wrist_right.wav wrist_right_recover.wav
+jhh02       1bcf  2d50 pid                                     jhh02.wav       jhh02_recover.wav
+jhh04       1bcf  2d51 pid                                     jhh04.wav       jhh04_recover.wav
 ```
 
-- `sn_prefix`：新固件 SN 前缀，`-` 表示无。
-- `fallback`：`pid` 或 `product=<string>`。
+- `match_rule`：`serial=<完整SN>`、`product=<string>` 或 `pid`。
 - WAV 列可省略，缺省 `<name>.wav` / `<name>_recover.wav`。
 
 ## 语音资源
@@ -141,7 +134,5 @@ systemctl disable --now watchdog   # 回滚/卸载
 
 ## 已知限制 / 待办
 
-- **新固件 SN 前缀路径未端到端验证**：板端当前为旧固件，只能验证回退键；固件升级到
-  SL/SR/ST/SF 后需补测四路 SN 前缀命中。
 - 物理拔插测试（AC1–AC6）需真人操作，留待板端联调。
 - device-ui 侧「告警横幅 + 消音按钮」未实现（已记 `02-github/device-ui/TODO.md` 代办）。

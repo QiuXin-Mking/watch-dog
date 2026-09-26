@@ -6,26 +6,24 @@
 
 // One line in cameras.conf declares one expected camera ("应有清单").
 //
-//   # name      vid   pid  sn_prefix  fallback        alarm_wav          recover_wav
-//   wrist_left  1bcf  2d52  SL         product=SL      wrist_left.wav     wrist_left_recover.wav
+//   # name      vid   pid  match_rule                              alarm_wav       recover_wav
+//   wrist_left  1bcf  2d52 serial=<full-device-serial>             wrist_left.wav  wrist_left_recover.wav
 //
 // Matching rule (vid+pid must always match):
-//   serial starts with sn_prefix            -- new firmware SN (SL/SR/ST/SF)
-//   OR fallback:
-//        product=<string> : udev ID_MODEL exactly equals <string>   (old firmware)
-//        pid              : vid+pid alone is enough                  (unique PID)
-struct FallbackRule {
-    enum class Type { kPid, kProduct };
+//   serial=<string>  : USB serial exactly equals <string>
+//   product=<string> : udev ID_MODEL exactly equals <string>
+//   pid              : vid+pid alone is enough
+struct MatchRule {
+    enum class Type { kPid, kProduct, kSerial };
     Type type = Type::kPid;
-    std::string product;  // valid when type == kProduct
+    std::string value;
 };
 
 struct CameraSpec {
     std::string name;
     uint16_t vid = 0;
     uint16_t pid = 0;
-    std::string sn_prefix;  // empty / "-" means no serial-prefix rule
-    FallbackRule fallback;
+    MatchRule match;
     std::string alarm_wav;    // default: <name>.wav
     std::string recover_wav;  // default: <name>_recover.wav
 };

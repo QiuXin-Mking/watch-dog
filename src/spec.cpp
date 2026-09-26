@@ -62,10 +62,10 @@ std::vector<CameraSpec> parse_cameras_conf(const std::string& path, std::string&
         if (line.empty()) continue;
 
         std::vector<std::string> tok = split_ws(line);
-        // name vid pid sn_prefix fallback [alarm_wav recover_wav]
-        if (tok.size() < 5) {
+        // name vid pid match_rule [alarm_wav recover_wav]
+        if (tok.size() < 4) {
             std::ostringstream oss;
-            oss << path << ':' << line_no << ": expected 'name vid pid sn_prefix fallback [alarm_wav recover_wav]'";
+            oss << path << ':' << line_no << ": expected 'name vid pid match_rule [alarm_wav recover_wav]'";
             error = oss.str();
             return {};
         }
@@ -88,37 +88,42 @@ std::vector<CameraSpec> parse_cameras_conf(const std::string& path, std::string&
             return {};
         }
 
-        // sn_prefix ("-" means none).
-        if (tok[3] != "-") spec.sn_prefix = tok[3];
-
-        // fallback: pid | product=<string>
-        if (tok[4] == "pid") {
-            spec.fallback.type = FallbackRule::Type::kPid;
-        } else if (starts_with(tok[4], "product=")) {
-            std::string prod = tok[4].substr(std::string("product=").size());
-            if (prod.empty()) {
+        // match_rule: pid | product=<string> | serial=<full-string>
+        if (tok[3] == "pid") {
+            spec.match.type = MatchRule::Type::kPid;
+        } else if (starts_with(tok[3], "product=")) {
+            spec.match.type = MatchRule::Type::kProduct;
+            spec.match.value = tok[3].substr(std::string("product=").size());
+            if (spec.match.value.empty()) {
                 std::ostringstream oss;
-                oss << path << ':' << line_no << ": empty product fallback";
+                oss << path << ':' << line_no << ": empty product match";
                 error = oss.str();
                 return {};
             }
-            spec.fallback.type = FallbackRule::Type::kProduct;
-            spec.fallback.product = prod;
+        } else if (starts_with(tok[3], "serial=")) {
+            spec.match.type = MatchRule::Type::kSerial;
+            spec.match.value = tok[3].substr(std::string("serial=").size());
+            if (spec.match.value.empty()) {
+                std::ostringstream oss;
+                oss << path << ':' << line_no << ": empty serial match";
+                error = oss.str();
+                return {};
+            }
         } else {
             std::ostringstream oss;
-            oss << path << ':' << line_no << ": fallback must be 'pid' or 'product=<string>'";
+            oss << path << ':' << line_no << ": match_rule must be 'pid', 'product=<string>', or 'serial=<string>'";
             error = oss.str();
             return {};
         }
 
         // WAV file names (optional, sensible defaults).
-        if (tok.size() >= 6) {
-            spec.alarm_wav = tok[5];
+        if (tok.size() >= 5) {
+            spec.alarm_wav = tok[4];
         } else {
             spec.alarm_wav = spec.name + ".wav";
         }
-        if (tok.size() >= 7) {
-            spec.recover_wav = tok[6];
+        if (tok.size() >= 6) {
+            spec.recover_wav = tok[5];
         } else {
             spec.recover_wav = spec.name + "_recover.wav";
         }

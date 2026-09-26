@@ -1,17 +1,13 @@
 # watchdog —— 应有摄像头清单 (mango_pro 六目档默认)
 #
-# 列:  name  vid   pid   sn_prefix  fallback        alarm_wav            recover_wav
-#   sn_prefix : 新固件 SN 前缀 (SL/SR/ST/SF)，"-" 表示无
-#   fallback  : "pid"              仅凭 vid+pid 命中 (PID 唯一)
-#             : "product=<string>" udev ID_MODEL 精确匹配 (兼容旧固件)
-# 匹配规则: vid+pid 全等 且 (serial 以 sn_prefix 开头 OR fallback 命中)
+# 列: name vid pid match_rule alarm_wav recover_wav
+# match_rule: "pid"、"product=<string>" 或 "serial=<完整SN>"
+# 匹配规则: vid+pid 全等且 match_rule 命中。
 # 同名多行 = 一个通道的多个设备，任一设备缺失该通道即报"断开"
 # 语音文件: /etc/watchdog/sounds/ 下对应文件名，缺失则该路退化为 journald 日志
 #
-# 左腕: 1bcf:2d52, 旧固件 serial=SL003 命中 sn_prefix SL (新固件 SLxxxxx)
-wrist_left  1bcf 2d52  SL         product=SL      wrist_left.wav         wrist_left_recover.wav
-# 右腕: 1bcf:2d52, 旧固件 product=JHHSW / serial=SW002 走 product 回退
-wrist_right 1bcf 2d52  SR         product=JHHSW   wrist_right.wav        wrist_right_recover.wav
+wrist_left  1bcf 2d52 serial=JH01260911A01W10FV200C1A01217 wrist_left.wav  wrist_left_recover.wav
+wrist_right 1bcf 2d52 serial=JH01260911A01W10FV200C1A01670 wrist_right.wav wrist_right_recover.wav
 # 六目 = 双目(jhh02 2d50) + 四目(jhh04 2d51) 合并成一通道，任一缺失即报"六目摄像头断开"
-sixcam      1bcf 2d50  ST         pid             sixcam.wav             sixcam_recover.wav
-sixcam      1bcf 2d51  SF         pid             sixcam.wav             sixcam_recover.wav
+sixcam      1bcf 2d50 pid sixcam.wav sixcam_recover.wav
+sixcam      1bcf 2d51 pid sixcam.wav sixcam_recover.wav

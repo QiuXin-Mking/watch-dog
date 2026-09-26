@@ -71,17 +71,14 @@ std::vector<UsbDeviceProps> enumerate_usb_devices() {
 
 bool spec_matches(const CameraSpec& spec, const UsbDeviceProps& dev) {
     if (spec.vid != dev.vid || spec.pid != dev.pid) return false;
-    // New-firmware SN prefix takes priority (serial starts with e.g. "SL").
-    if (!spec.sn_prefix.empty() && dev.serial.size() >= spec.sn_prefix.size() &&
-        dev.serial.compare(0, spec.sn_prefix.size(), spec.sn_prefix) == 0) {
+    if (spec.match.type == MatchRule::Type::kPid) {
         return true;
     }
-    // Old-firmware fallback.
-    if (spec.fallback.type == FallbackRule::Type::kPid) {
-        return true;  // vid+pid already matched
+    if (spec.match.type == MatchRule::Type::kProduct) {
+        return dev.product == spec.match.value;
     }
-    if (spec.fallback.type == FallbackRule::Type::kProduct) {
-        return dev.product == spec.fallback.product;
+    if (spec.match.type == MatchRule::Type::kSerial) {
+        return dev.serial == spec.match.value;
     }
     return false;
 }

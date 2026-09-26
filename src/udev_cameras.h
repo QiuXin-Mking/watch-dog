@@ -20,7 +20,7 @@ struct UsbDeviceProps {
 // that expose a vendor id. Includes non-camera devices (caller filters).
 std::vector<UsbDeviceProps> enumerate_usb_devices();
 
-// Does this device match this spec? vid+pid equal AND (serial-prefix OR fallback).
+// Does this device match this spec? VID/PID and the configured match rule must agree.
 bool spec_matches(const CameraSpec& spec, const UsbDeviceProps& dev);
 
 // Index of the first spec matched by dev, or -1 when it matches nothing.
