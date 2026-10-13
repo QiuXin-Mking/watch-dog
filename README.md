@@ -13,7 +13,7 @@ watchdog (systemd 常驻服务, Restart=always)
 ├── 启动: 读 /etc/watchdog/cameras.conf → libudev 枚举在位摄像头 → 比对清单
 ├── 运行: udev_monitor 监听 usb add/remove → 维护 missing/acked 状态
 ├── 告警: alarm 线程对 missing∧!acked 各路循环播放分路语音 (libasound → ES8323)
-└── 控制: UDS /tmp/watchdog.sock → status / stop_alarm
+└── 控制: UDS /tmp/watchdog.sock → status / stop_alarm / stop_me
 ```
 
 - 2 线程：udev 事件线程 + alarm 播放线程；共享状态由 mutex 保护。
@@ -97,12 +97,16 @@ python3 deploy/uds_cmd.py status
 
 python3 deploy/uds_cmd.py stop_alarm
 # {"ok":true}   (消音当前所有 missing；新 unplug 才重新响)
+
+python3 deploy/uds_cmd.py stop_me
+# {"ok":true,"stopping":true}   (停录 → 播报"关机成功" → 关机)
 ```
 
 装了 netcat 的机器也可用 `echo status | nc -U /tmp/watchdog.sock`。
 
 - `status` → `ok / alarming / missing / cameras`（每路是否在位）。
 - `stop_alarm` → 静音所有当前告警，语义 D5（确认/消音）。
+- `stop_me` → 关机链路：向 `/tmp/unified_capture.sock` 发 `stop` 并阻塞等其落盘完成 → 播完 `关机成功.wav` → 执行关机命令（默认 `systemctl poweroff`，可经环境变量 `WATCHDOG_SHUTDOWN_CMD` 覆盖；采集 socket 可经 `WATCHDOG_CAPTURE_SOCK` 覆盖）。先回 ACK，实际动作在主循环退出、线程 join 后执行；停录/播报失败仅记日志并继续关机。
 - 未知命令 → `{"ok":false,"error":"unknown command"}`。
 
 ## 部署（systemd）

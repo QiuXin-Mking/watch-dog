@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "audio.h"
+#include "capture_ctrl.h"
 #include "log.h"
 #include "sensor.h"
 #include "spec.h"
@@ -27,6 +28,10 @@ constexpr const char* kDefaultFanConf = "/etc/watchdog/fan.conf";
 constexpr const char* kDefaultSounds = "/etc/watchdog/sounds";
 constexpr const char* kDefaultSock = "/tmp/watchdog.sock";
 constexpr const char* kDefaultAlsa = "plughw:CARD=rockchipes8388,DEV=0";
+constexpr const char* kDefaultCaptureSock = "/tmp/unified_capture.sock";
+constexpr const char* kDefaultShutdownCmd = "systemctl poweroff";
+constexpr const char* kShutdownVoice = "关机成功.wav";
+constexpr int kCaptureStopTimeoutMs = 15000;
 
 volatile std::sig_atomic_t g_stop = 0;
 void on_signal(int) { g_stop = 1; }
@@ -160,6 +165,47 @@ void run_udev_loop(UdevMonitor& mon, State& state,
     log_info("udev loop exit");
 }
 
+// Ordered shutdown after the control loop has stopped and all worker threads
+// have joined (so the alarm thread can no longer contend for the speaker):
+//   1. stop the capture session and wait for it to finalize on disk,
+//   2. play "关机成功" to completion,
+//   3. power the device off.
+// Steps 1 and 2 are best-effort: any failure is logged and we still power off,
+// so a missing socket or WAV can never leave the device unable to shut down.
+void perform_shutdown(const SoundBank& bank, AudioPlayer& player,
+                      const std::string& capture_sock,
+                      const std::string& shutdown_cmd) {
+    log_info("shutdown: stopping capture if running");
+    switch (request_capture_stop(capture_sock, kCaptureStopTimeoutMs)) {
+        case CaptureStopResult::stopped:
+            log_info("shutdown: capture stopped, data finalized");
+            break;
+        case CaptureStopResult::not_running:
+            log_info("shutdown: capture not running, skipping stop");
+            break;
+        case CaptureStopResult::unreachable:
+            log_warn("shutdown: capture unreachable, proceeding anyway");
+            break;
+    }
+
+    const WavData* wav = bank.find(kShutdownVoice);
+    if (wav) {
+        std::atomic<bool> no_cancel{false};
+        log_info("shutdown: playing %s", kShutdownVoice);
+        if (!player.play(*wav, no_cancel)) {
+            log_warn("shutdown: voice playback failed, proceeding anyway");
+        }
+    } else {
+        log_warn("shutdown: voice %s missing, proceeding anyway", kShutdownVoice);
+    }
+
+    log_info("shutdown: powering off via [%s]", shutdown_cmd.c_str());
+    const int status = std::system(shutdown_cmd.c_str());
+    if (status != 0) {
+        log_warn("shutdown: command returned status %d", status);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -177,6 +223,17 @@ int main(int argc, char** argv) {
     const std::string conf_path = argc > 1 ? argv[1] : kDefaultConf;
     const std::string sounds_dir = argc > 2 ? argv[2] : kDefaultSounds;
     const std::string alsa_dev = argc > 3 ? argv[3] : kDefaultAlsa;
+
+    // Shutdown wiring. The env overrides let tests inject a fake capture socket
+    // and a harmless shutdown command instead of really powering the machine off.
+    auto env_or = [](const char* name, const char* dflt) -> std::string {
+        const char* v = std::getenv(name);
+        return std::string((v && *v) ? v : dflt);
+    };
+    const std::string capture_sock =
+        env_or("WATCHDOG_CAPTURE_SOCK", kDefaultCaptureSock);
+    const std::string shutdown_cmd =
+        env_or("WATCHDOG_SHUTDOWN_CMD", kDefaultShutdownCmd);
 
     std::string err;
     std::vector<CameraSpec> specs = parse_cameras_conf(conf_path, err);
@@ -209,6 +266,7 @@ int main(int argc, char** argv) {
         bank.add(s.alarm_wav, sounds_dir);
         bank.add(s.recover_wav, sounds_dir);
     }
+    bank.add(kShutdownVoice, sounds_dir);
 
     ensure_speaker_audible();
     log_info("alsa: using device %s", alsa_dev.c_str());
@@ -266,7 +324,9 @@ int main(int argc, char** argv) {
 
     log_info("watchdog running (socket=%s)", kDefaultSock);
 
-    const auto handler = [&state](const std::string& cmd) -> std::string {
+    std::atomic<bool> shutdown_requested{false};
+    const auto handler = [&state, &shutdown_requested](
+                             const std::string& cmd) -> std::string {
         if (cmd == "status") {
             return state.status_json();
         }
@@ -275,10 +335,18 @@ int main(int argc, char** argv) {
             log_info("command=stop_alarm: silenced all currently missing");
             return "{\"ok\":true}";
         }
+        if (cmd == "stop_me") {
+            if (shutdown_requested.exchange(true)) {
+                log_info("command=stop_me: shutdown already in progress");
+            } else {
+                log_info("command=stop_me: shutdown requested");
+            }
+            return "{\"ok\":true,\"stopping\":true}";
+        }
         return "{\"ok\":false,\"error\":\"unknown command\"}";
     };
 
-    while (!g_stop && running.load()) {
+    while (!g_stop && running.load() && !shutdown_requested.load()) {
         struct pollfd fds[1];
         fds[0].fd = server.fd();
         fds[0].events = POLLIN;
@@ -301,6 +369,11 @@ int main(int argc, char** argv) {
     if (udev_thr.joinable()) udev_thr.join();
     if (alarm_thr.joinable()) alarm_thr.join();
     if (fan_thr.joinable()) fan_thr.join();
+
+    if (shutdown_requested.load()) {
+        perform_shutdown(bank, player, capture_sock, shutdown_cmd);
+    }
+
     log_info("watchdog stopped");
     return 0;
 }

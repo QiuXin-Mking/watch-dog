@@ -5,6 +5,7 @@ Stand-in for `nc -U /tmp/watchdog.sock` (netcat is not installed on the board).
 
     usage: python3 uds_cmd.py status
            python3 uds_cmd.py stop_alarm
+           python3 uds_cmd.py stop_me     # stop recording + play 关机成功 + power off
 """
 
 import socket
@@ -13,7 +14,7 @@ import sys
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("usage: uds_cmd.py <status|stop_alarm>", file=sys.stderr)
+        print("usage: uds_cmd.py <status|stop_alarm|stop_me>", file=sys.stderr)
         return 2
     cmd = sys.argv[1]
 
