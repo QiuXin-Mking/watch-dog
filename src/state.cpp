@@ -29,7 +29,8 @@ std::string json_escape(const std::string& s) {
 
 }  // namespace
 
-State::State(std::vector<CameraSpec> specs) : specs_(std::move(specs)) {
+State::State(std::vector<CameraSpec> specs, std::vector<SensorChannel> sensors)
+    : specs_(std::move(specs)), sensors_(std::move(sensors)) {
     for (const auto& s : specs_) {
         bool seen = false;
         for (const auto& c : channels_) {
@@ -39,6 +40,19 @@ State::State(std::vector<CameraSpec> specs) : specs_(std::move(specs)) {
             }
         }
         if (!seen) channels_.push_back(s.name);
+    }
+    for (const auto& s : sensors_) {
+        bool seen = false;
+        for (const auto& c : channels_) {
+            if (c == s.name) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) channels_.push_back(s.name);
+        // Assume healthy until the first fan-loop poll reports the real state,
+        // so a sensor can never alarm before its sysfs has been read once.
+        sensor_present_[s.name] = true;
     }
 }
 
@@ -52,14 +66,30 @@ void State::clear_syspaths_for(size_t index) {
     }
 }
 
-const CameraSpec* State::find_spec(const std::string& name) const {
+const std::string* State::alarm_wav_for(const std::string& name) const {
+    for (const auto& s : sensors_) {
+        if (s.name == name) return &s.alarm_wav;
+    }
     for (const auto& s : specs_) {
-        if (s.name == name) return &s;
+        if (s.name == name) return &s.alarm_wav;
+    }
+    return nullptr;
+}
+
+const std::string* State::recover_wav_for(const std::string& name) const {
+    for (const auto& s : sensors_) {
+        if (s.name == name) return &s.recover_wav;
+    }
+    for (const auto& s : specs_) {
+        if (s.name == name) return &s.recover_wav;
     }
     return nullptr;
 }
 
 bool State::name_present_locked(const std::string& name) const {
+    auto sit = sensor_present_.find(name);
+    if (sit != sensor_present_.end()) return sit->second;
+
     bool any = false;
     for (size_t i = 0; i < specs_.size(); ++i) {
         if (specs_[i].name != name) continue;
@@ -126,6 +156,19 @@ void State::remove_by_index(size_t spec_index) {
         }
     }
     if (changed) request_cancel();
+}
+
+void State::set_sensor_present(const std::string& name, bool healthy) {
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        auto it = sensor_present_.find(name);
+        if (it == sensor_present_.end()) return;  // unknown sensor channel
+        if (it->second == healthy) return;        // no transition
+        it->second = healthy;
+        acked_.erase(name);  // both edges re-arm / clear the ack (D4 semantics)
+        if (healthy) recover_queue_.push_back(name);
+    }
+    request_cancel();  // wake the alarm thread to (un)alarm promptly
 }
 
 void State::ack_all_missing() {

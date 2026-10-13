@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "sensor.h"
 #include "spec.h"
 
 // Shared, mutex-protected runtime state.
@@ -23,12 +24,14 @@
 //                                    unplug event clears the ack)
 class State {
 public:
-    explicit State(std::vector<CameraSpec> specs);
+    State(std::vector<CameraSpec> specs, std::vector<SensorChannel> sensors);
 
     const std::vector<CameraSpec>& specs() const { return specs_; }
-    // First spec with this channel name (used only for its WAV file names, so
-    // with a multi-device channel any one works).
-    const CameraSpec* find_spec(const std::string& name) const;
+    // Alarm / recover WAV file name for a channel (camera or sensor), or
+    // nullptr when the name is not a known channel. Pointer is stable: it
+    // refers into the immutable specs_/sensors_ vectors.
+    const std::string* alarm_wav_for(const std::string& name) const;
+    const std::string* recover_wav_for(const std::string& name) const;
 
     // ---- startup (main thread, before udev/alarm threads start) ----
     void seed_present(size_t spec_index, const std::string& syspath);
@@ -43,6 +46,13 @@ public:
                                   std::string* removed_name = nullptr);
     // Fallback when a remove event had no syspath mapping but props matched.
     void remove_by_index(size_t spec_index);
+
+    // ---- sensor (fan) poll thread ----
+    // Set a sensor channel healthy (present) or fault (missing). A healthy
+    // transition enqueues a one-shot recover voice and clears the ack; a fault
+    // transition clears the ack (re-arms the alarm). Mirrors the camera add/
+    // remove semantics so the alarm thread treats both identically.
+    void set_sensor_present(const std::string& name, bool healthy);
 
     // ---- UDS control thread ----
     void ack_all_missing();  // stop_alarm: silence every currently-missing channel
@@ -71,8 +81,11 @@ private:
     bool name_present_locked(const std::string& name) const;
 
     std::vector<CameraSpec> specs_;          // immutable after construction
+    std::vector<SensorChannel> sensors_;     // immutable after construction
     std::vector<std::string> channels_;      // unique channel names (spec order)
     mutable std::mutex m_;
+
+    std::map<std::string, bool> sensor_present_;  // sensor name -> healthy
 
     std::map<std::string, size_t> syspath_to_index_;  // syspath -> spec index
     std::set<size_t> present_indices_;                // specs with a present device

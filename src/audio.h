@@ -15,10 +15,15 @@ class SoundBank {
 public:
     void add_from_specs(const std::vector<CameraSpec>& specs,
                         const std::string& base_dir);
+    // Load one WAV by file name (used for non-camera sensor channels). Missing
+    // / unusable files are logged once and skipped, never fatal.
+    void add(const std::string& file_name, const std::string& base_dir);
     const WavData* find(const std::string& file_name) const;
     size_t count() const { return wavs_.size(); }
 
 private:
+    void load(const std::string& file_name, const std::string& base_dir);
+
     std::map<std::string, std::unique_ptr<WavData>> wavs_;
     std::vector<std::string> warned_;  // already-logged missing files
 };

@@ -1,0 +1,12 @@
+# fan.conf — 风扇温控监控与停转告警阈值（watchdog 读取，缺失/非法值用内置默认）。
+# 阈值单位毫℃（80000 = 80°C）；停转持续(s) / 轮询间隔(s) / hwmon name / thermal type。
+
+overtemp_threshold_mc = 80000
+stall_seconds = 10
+poll_seconds = 5
+fan_hwmon_name = pwmfan
+thermal_zone_type = little-core-thermal
+fan_alarm_wav = 风扇故障.wav
+fan_recover_wav = 风扇恢复.wav
+overtemp_alarm_wav = 过温.wav
+overtemp_recover_wav = 温度恢复.wav

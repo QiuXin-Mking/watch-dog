@@ -27,6 +27,12 @@ else
     install -m 0644 deploy/cameras.conf.example "${PREFIX}/etc/watchdog/cameras.conf"
     echo "    installed default cameras.conf"
 fi
+if [[ -f "${PREFIX}/etc/watchdog/fan.conf" ]]; then
+    echo "    keep existing ${PREFIX}/etc/watchdog/fan.conf"
+else
+    install -m 0644 deploy/fan.conf.example "${PREFIX}/etc/watchdog/fan.conf"
+    echo "    installed default fan.conf"
+fi
 
 echo "==> install sounds"
 install -d -m 0755 "${PREFIX}/etc/watchdog/sounds"

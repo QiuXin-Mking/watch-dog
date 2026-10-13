@@ -3,6 +3,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <poll.h>
 #include <set>
 #include <string>
@@ -13,6 +14,7 @@
 
 #include "audio.h"
 #include "log.h"
+#include "sensor.h"
 #include "spec.h"
 #include "state.h"
 #include "uds.h"
@@ -21,6 +23,7 @@
 namespace {
 
 constexpr const char* kDefaultConf = "/etc/watchdog/cameras.conf";
+constexpr const char* kDefaultFanConf = "/etc/watchdog/fan.conf";
 constexpr const char* kDefaultSounds = "/etc/watchdog/sounds";
 constexpr const char* kDefaultSock = "/tmp/watchdog.sock";
 constexpr const char* kDefaultAlsa = "plughw:CARD=rockchipes8388,DEV=0";
@@ -75,17 +78,17 @@ void run_alarm_loop(State& state, const SoundBank& bank, AudioPlayer& player,
         for (const auto& name : recovers) {
             if (!running.load()) break;
             if (!announced.insert(name).second) continue;
-            const CameraSpec* sp = state.find_spec(name);
-            if (!sp) continue;
+            const std::string* wav_name = state.recover_wav_for(name);
+            if (!wav_name) continue;
             if (!state.is_present(name)) continue;
-            const WavData* wav = bank.find(sp->recover_wav);
+            const WavData* wav = bank.find(*wav_name);
             if (!wav) {
                 log_warn("recover sound missing for %s (file %s)", name.c_str(),
-                         sp->recover_wav.c_str());
+                         wav_name->c_str());
                 continue;
             }
             log_info("recover name=%s file=%s", name.c_str(),
-                     sp->recover_wav.c_str());
+                     wav_name->c_str());
             player.play(*wav, state.cancel_flag());
             state.take_cancel();
         }
@@ -108,12 +111,12 @@ void run_alarm_loop(State& state, const SoundBank& bank, AudioPlayer& player,
         if (!targets.empty()) {
             for (const auto& name : targets) {
                 if (!running.load()) break;
-                const CameraSpec* sp = state.find_spec(name);
-                if (!sp) continue;
-                const WavData* wav = bank.find(sp->alarm_wav);
+                const std::string* wav_name = state.alarm_wav_for(name);
+                if (!wav_name) continue;
+                const WavData* wav = bank.find(*wav_name);
                 if (!wav) {
                     log_warn("alarm sound missing for %s (file %s) -> journald only",
-                             name.c_str(), sp->alarm_wav.c_str());
+                             name.c_str(), wav_name->c_str());
                     continue;
                 }
                 if (!player.play(*wav, state.cancel_flag())) {
@@ -184,6 +187,16 @@ int main(int argc, char** argv) {
     log_info("config: loaded %zu camera spec(s) from %s", specs.size(),
              conf_path.c_str());
 
+    const FanConfig fan_cfg = parse_fan_conf(kDefaultFanConf);
+    std::vector<SensorChannel> sensors = {
+        {"fan", fan_cfg.fan_alarm_wav, fan_cfg.fan_recover_wav},
+        {"overtemp", fan_cfg.overtemp_alarm_wav, fan_cfg.overtemp_recover_wav},
+    };
+    log_info("config: fan hwmon=%s thermal=%s overtemp=%dmC stall=%ds poll=%ds",
+             fan_cfg.fan_hwmon_name.c_str(), fan_cfg.thermal_zone_type.c_str(),
+             fan_cfg.overtemp_threshold_mc, fan_cfg.stall_seconds,
+             fan_cfg.poll_seconds);
+
     // Register handlers before any thread starts so a SIGTERM/SIGINT in the
     // setup window is caught rather than killing the process outright.
     std::signal(SIGINT, on_signal);
@@ -192,12 +205,16 @@ int main(int argc, char** argv) {
 
     SoundBank bank;
     bank.add_from_specs(specs, sounds_dir);
+    for (const auto& s : sensors) {
+        bank.add(s.alarm_wav, sounds_dir);
+        bank.add(s.recover_wav, sounds_dir);
+    }
 
     ensure_speaker_audible();
     log_info("alsa: using device %s", alsa_dev.c_str());
     AudioPlayer player(alsa_dev);
 
-    State state(std::move(specs));
+    State state(std::move(specs), std::move(sensors));
 
     // Arm the udev monitor *before* enumerating, so a removal that happens in
     // the window between enable_receiving() and the initial enumeration is
@@ -244,6 +261,8 @@ int main(int argc, char** argv) {
                          std::ref(running));
     std::thread alarm_thr(run_alarm_loop, std::ref(state), std::ref(bank),
                           std::ref(player), std::ref(running));
+    std::thread fan_thr(run_fan_loop, std::ref(state), std::cref(fan_cfg),
+                        std::ref(running));
 
     log_info("watchdog running (socket=%s)", kDefaultSock);
 
@@ -281,6 +300,7 @@ int main(int argc, char** argv) {
     server.close();
     if (udev_thr.joinable()) udev_thr.join();
     if (alarm_thr.joinable()) alarm_thr.join();
+    if (fan_thr.joinable()) fan_thr.join();
     log_info("watchdog stopped");
     return 0;
 }
