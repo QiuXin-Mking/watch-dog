@@ -73,8 +73,9 @@ jhh04       1bcf  2d51 pid                                     jhh04.wav       j
 
 ## 语音资源
 
-`sounds/` 下 18 个中文命名的播报 WAV（PCM16 **44.1kHz 双声道**），部署到
-`/etc/watchdog/sounds/`。完整清单见 [`docs/语音清单.md`](docs/语音清单.md)。
+`sounds/` 下 26 个中文命名的播报 WAV（PCM16 **44.1kHz 双声道**），部署到
+`/etc/watchdog/sounds/`。其中 18 条自检/告警、8 条标定按键反馈，完整清单见
+[`docs/语音清单.md`](docs/语音清单.md)。
 
 语音由 edge-tts 离线合成（`tools/gen_voices.py`，`zh-CN-XiaoyiNeural`），
 链路与重生成方法见 [`docs/03-语音合成流水线.md`](docs/03-语音合成流水线.md)。
