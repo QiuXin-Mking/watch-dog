@@ -13,10 +13,13 @@ watchdog (systemd 常驻服务, Restart=always)
 ├── 启动: 读 /etc/watchdog/cameras.conf → libudev 枚举在位摄像头 → 比对清单
 ├── 运行: udev_monitor 监听 usb add/remove → 维护 missing/acked 状态
 ├── 告警: alarm 线程对 missing∧!acked 各路循环播放分路语音 (libasound → ES8323)
+├── 标定: PhaseWatcher 轮询 unified_capture phase_status，按键/流程语音 + announce_done 握手
 └── 控制: UDS /tmp/watchdog.sock → status / stop_alarm / stop_me
 ```
 
-- 2 线程：udev 事件线程 + alarm 播放线程；共享状态由 mutex 保护。
+- 线程：主线程 (UDS poll) + udev 事件线程 + alarm 播放线程 + fan 轮询线程 +
+  PhaseWatcher 轮询线程 + PhaseWatcher voice worker（播放与握手）；共享状态由 mutex 保护。
+- 所有语音经 `PlaybackArbiter` 串行化：shutdown > alarm > 按键 > 流程语音；新按键可打断在播的旧按键/流程语音。
 - 每路摄像头状态机：`present ⇄ missing`；`missing` 时子态 `alarming`（响）/
   `acked`（已消音）。`stop_alarm` = 对当前所有 missing 置 `acked`（确认/消音），
   静默直到该路产生新 unplug 事件才重新响。
@@ -27,19 +30,27 @@ watchdog (systemd 常驻服务, Restart=always)
 
 ```
 src/                 C++17 源码
-  main.cpp           装配 + 主 poll 循环 + alarm/udev 线程
+  main.cpp           装配 + 主 poll 循环 + alarm/udev/fan/phase 线程
   spec.{h,cpp}       cameras.conf 解析
-  state.{h,cpp}      missing/acked/acked 共享状态 + status JSON
+  state.{h,cpp}      missing/acked 共享状态 + status JSON
   udev_cameras.{h,cpp} libudev 枚举/监听/匹配
-  wav.{h,cpp}        RIFF/WAV (PCM16 mono) 解析
-  audio.{h,cpp}      SoundBank 预载 + ALSA (plughw) 播放
+  wav.{h,cpp}        RIFF/WAV (PCM16) 解析
+  sound_bank.cpp     WAV 预载（纯逻辑，可主机测试）
+  audio.{h,cpp}      ALSA (plughw) 播放 + VoiceSink 接口
+  playback_arbiter.{h,cpp} 播放优先级/抢占/串行化
+  capture_client.{h,cpp}    unified_capture 短连接命令客户端
+  json_lite.{h,cpp}         扁平 JSON 取值
+  phase_state_view.h        phase_status 解析
+  phase_voice_policy.{h,cpp} 纯语音决策/去重
+  phase_watcher.{h,cpp}     phase 轮询线程 + voice worker + announce_done
   uds.{h,cpp}        /tmp/watchdog.sock 短连接控制服务
 deploy/
   cameras.conf.example  应有清单 (mango_pro 四路)
   watchdog.service      systemd 单元
   deploy.sh             一键部署脚本 (板上执行)
-sounds/                  8 个占位 WAV + gen_placeholder_wav.py
-Makefile              make / make clean
+sounds/                  26 条播报 WAV（18 自检/告警 + 8 标定按键反馈）
+tests/                   主机纯逻辑测试（make test）
+Makefile              make / make test / make clean
 ```
 
 ## 编译（必须在板端，Mac 无 libudev/libasound）
@@ -48,6 +59,12 @@ Makefile              make / make clean
 # 把本目录拷到板端后
 make            # 产出 ./watchdog (g++ -ludev -lasound -lpthread)
 make clean
+```
+
+主机（无 libudev/libasound 头文件）可运行纯逻辑测试：
+
+```bash
+make test       # json / phase policy / playback arbiter / phase watcher
 ```
 
 ## 匹配规则

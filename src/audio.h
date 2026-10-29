@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "spec.h"
@@ -28,17 +29,46 @@ private:
     std::vector<std::string> warned_;  // already-logged missing files
 };
 
+// Audio priority: lower value wins. Shutdown > alarm > button > flow prompt.
+enum class VoicePriority {
+    shutdown = 0,
+    alarm = 1,
+    button = 2,
+    prompt = 3,
+};
+
+enum class PlayResult {
+    played,     // whole WAV written
+    cancelled,  // caller's cancel flag tripped
+    preempted,  // a higher/equal-priority request asked us to stop
+    skipped,    // arbiter declined (busy / superseded) -- never returned by sink
+    error,      // invalid WAV or ALSA failure
+};
+
+// The playback primitive behind PlaybackArbiter. Implementations must check
+// `cancel` and (when non-null) `preempt` between write chunks.
+class VoiceSink {
+public:
+    virtual ~VoiceSink() = default;
+    virtual PlayResult play(const WavData& wav, const std::atomic<bool>& cancel,
+                            const std::atomic<bool>* preempt) = 0;
+};
+
 // Streams raw PCM (S16_LE) to an ALSA PCM device ("plughw:..." allows format /
 // rate / channel conversion). Each play() opens, writes in ~20 ms chunks and
-// closes; the cancel flag is checked between chunks so stop_alarm mutes fast.
-class AudioPlayer {
+// closes; cancel and preempt are checked between chunks so stop_alarm / a
+// higher-priority voice mutes fast.
+class AudioPlayer : public VoiceSink {
 public:
     explicit AudioPlayer(std::string device) : device_(std::move(device)) {}
 
     void set_device(std::string d) { device_ = std::move(d); }
     const std::string& device() const { return device_; }
 
-    // Returns true when the whole WAV was played; false on cancel or ALSA error.
+    PlayResult play(const WavData& wav, const std::atomic<bool>& cancel,
+                    const std::atomic<bool>* preempt) override;
+
+    // Legacy convenience wrapper (alarm semantics: no preemption source).
     bool play(const WavData& wav, const std::atomic<bool>& cancel);
 
 private:

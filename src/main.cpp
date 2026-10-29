@@ -15,6 +15,9 @@
 #include "audio.h"
 #include "capture_ctrl.h"
 #include "log.h"
+#include "phase_voice_policy.h"
+#include "phase_watcher.h"
+#include "playback_arbiter.h"
 #include "sensor.h"
 #include "spec.h"
 #include "state.h"
@@ -68,8 +71,8 @@ void ensure_speaker_audible() {
 
 // Alarm thread: consumes recover voices and plays alarm voices for every
 // missing ∧ !acked camera, repeating until the camera returns or is silenced.
-void run_alarm_loop(State& state, const SoundBank& bank, AudioPlayer& player,
-                    const std::atomic<bool>& running) {
+void run_alarm_loop(State& state, const SoundBank& bank,
+                    PlaybackArbiter& arbiter, const std::atomic<bool>& running) {
     std::set<std::string> prev_alarming;
     while (running.load()) {
         state.take_cancel();  // consume stale wake/interrupt flags
@@ -94,7 +97,7 @@ void run_alarm_loop(State& state, const SoundBank& bank, AudioPlayer& player,
             }
             log_info("recover name=%s file=%s", name.c_str(),
                      wav_name->c_str());
-            player.play(*wav, state.cancel_flag());
+            arbiter.play(*wav, state.cancel_flag(), VoicePriority::alarm, 0);
             state.take_cancel();
         }
 
@@ -124,10 +127,12 @@ void run_alarm_loop(State& state, const SoundBank& bank, AudioPlayer& player,
                              name.c_str(), wav_name->c_str());
                     continue;
                 }
-                if (!player.play(*wav, state.cancel_flag())) {
-                    // Cancelled (stop_alarm / new unplug) or ALSA error: stop
-                    // this round here; the inter-round pause below still runs so
-                    // a persistently failing ALSA device cannot busy-loop.
+                if (arbiter.play(*wav, state.cancel_flag(), VoicePriority::alarm,
+                                 0) != PlayResult::played) {
+                    // Cancelled (stop_alarm / new unplug), preempted by a
+                    // higher priority voice, or ALSA error: stop this round
+                    // here; the inter-round pause below still runs so a
+                    // persistently failing ALSA device cannot busy-loop.
                     break;
                 }
             }
@@ -172,7 +177,7 @@ void run_udev_loop(UdevMonitor& mon, State& state,
 //   3. power the device off.
 // Steps 1 and 2 are best-effort: any failure is logged and we still power off,
 // so a missing socket or WAV can never leave the device unable to shut down.
-void perform_shutdown(const SoundBank& bank, AudioPlayer& player,
+void perform_shutdown(const SoundBank& bank, PlaybackArbiter& arbiter,
                       const std::string& capture_sock,
                       const std::string& shutdown_cmd) {
     log_info("shutdown: stopping capture if running");
@@ -192,7 +197,8 @@ void perform_shutdown(const SoundBank& bank, AudioPlayer& player,
     if (wav) {
         std::atomic<bool> no_cancel{false};
         log_info("shutdown: playing %s", kShutdownVoice);
-        if (!player.play(*wav, no_cancel)) {
+        if (arbiter.play(*wav, no_cancel, VoicePriority::shutdown, 0) !=
+            PlayResult::played) {
             log_warn("shutdown: voice playback failed, proceeding anyway");
         }
     } else {
@@ -267,10 +273,14 @@ int main(int argc, char** argv) {
         bank.add(s.recover_wav, sounds_dir);
     }
     bank.add(kShutdownVoice, sounds_dir);
+    for (const auto& name : phase_voice::all_calibration_wavs()) {
+        bank.add(name, sounds_dir);
+    }
 
     ensure_speaker_audible();
     log_info("alsa: using device %s", alsa_dev.c_str());
     AudioPlayer player(alsa_dev);
+    PlaybackArbiter arbiter(player);
 
     State state(std::move(specs), std::move(sensors));
 
@@ -315,12 +325,14 @@ int main(int argc, char** argv) {
     }
 
     std::atomic<bool> running{true};
+    PhaseWatcher watcher(arbiter, bank, state, running, capture_sock);
     std::thread udev_thr(run_udev_loop, std::ref(mon), std::ref(state),
                          std::ref(running));
     std::thread alarm_thr(run_alarm_loop, std::ref(state), std::ref(bank),
-                          std::ref(player), std::ref(running));
+                          std::ref(arbiter), std::ref(running));
     std::thread fan_thr(run_fan_loop, std::ref(state), std::cref(fan_cfg),
                         std::ref(running));
+    std::thread phase_thr([&watcher] { watcher.run(); });
 
     log_info("watchdog running (socket=%s)", kDefaultSock);
 
@@ -364,14 +376,16 @@ int main(int argc, char** argv) {
 
     log_info("shutdown: stopping threads");
     running.store(false);
-    state.request_cancel();  // interrupt any in-flight voice
+    state.request_cancel();   // interrupt any in-flight voice
+    watcher.request_stop();   // do not block shutdown on the capture socket
     server.close();
     if (udev_thr.joinable()) udev_thr.join();
     if (alarm_thr.joinable()) alarm_thr.join();
     if (fan_thr.joinable()) fan_thr.join();
+    if (phase_thr.joinable()) phase_thr.join();
 
     if (shutdown_requested.load()) {
-        perform_shutdown(bank, player, capture_sock, shutdown_cmd);
+        perform_shutdown(bank, arbiter, capture_sock, shutdown_cmd);
     }
 
     log_info("watchdog stopped");
