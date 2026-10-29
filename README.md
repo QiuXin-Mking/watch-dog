@@ -73,17 +73,12 @@ jhh04       1bcf  2d51 pid                                     jhh04.wav       j
 
 ## 语音资源
 
-`/etc/watchdog/sounds/` 下 8 个 WAV（PCM16 单声道 48000Hz）：
+`sounds/` 下 18 个中文命名的播报 WAV（PCM16 **44.1kHz 双声道**），部署到
+`/etc/watchdog/sounds/`。完整清单见 [`docs/语音清单.md`](docs/语音清单.md)。
 
-| 告警 | 恢复 |
-|------|------|
-| wrist_left.wav（左腕断开） | wrist_left_recover.wav（左腕已恢复） |
-| wrist_right.wav（右腕断开） | wrist_right_recover.wav（右腕已恢复） |
-| jhh02.wav（双目断开） | jhh02_recover.wav（双目已恢复） |
-| jhh04.wav（四目断开） | jhh04_recover.wav（四目已恢复） |
-
-当前为占位正弦短音（告警 440/660/880/1100 Hz，恢复更低频），真实语音后续替换为
-`voice-script.md` 文案录音，同名即可。某 WAV 缺失时该路退化为 journald 日志（不 crash）。
+语音由 edge-tts 离线合成（`tools/gen_voices.py`，`zh-CN-XiaoyiNeural`），
+链路与重生成方法见 [`docs/03-语音合成流水线.md`](docs/03-语音合成流水线.md)。
+板端播放不依赖 Python/网络；某 WAV 缺失时该路退化为 journald 日志（不 crash）。
 
 ## 控制接口（UDS 契约）
 
